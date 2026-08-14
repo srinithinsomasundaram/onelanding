@@ -9,6 +9,10 @@ export default defineConfig(({ mode }) => {
   Object.assign(process.env, env);
 
   return {
+    server: {
+      host: "0.0.0.0",
+      allowedHosts: true,
+    },
     plugins: [
       tanstackStart({
         server: { entry: "server" },
