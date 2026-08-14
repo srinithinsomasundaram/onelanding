@@ -17,6 +17,10 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       allowedHosts: true,
     },
+    preview: {
+      host: "0.0.0.0",
+      allowedHosts: true,
+    },
     plugins: [
       tailwindcss(),
       viteReact(),
