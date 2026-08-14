@@ -13,8 +13,8 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true,
     },
     plugins: [
-      viteReact(),
       tailwindcss(),
+      viteReact(),
       tsconfigPaths(),
     ],
   };
