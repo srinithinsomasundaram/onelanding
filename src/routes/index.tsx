@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { ApplicationForm } from "@/components/landing/ApplicationForm";
 import { DashboardPreview } from "@/components/landing/DashboardPreview";
@@ -32,19 +31,6 @@ import {
 const pageTitle = "one — One Platform. Unified Operations.";
 const pageDescription =
   "one is a business operating platform that unifies people, tasks, CRM, sales, purchases, inventory, finance, SOPs, and AI. Join the Launch 10 Program: 10 businesses, 6 months free.";
-
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: pageTitle },
-      { name: "description", content: pageDescription },
-      { property: "og:title", content: pageTitle },
-      { property: "og:description", content: pageDescription },
-      { property: "og:image", content: "/one-logo.png" },
-    ],
-  }),
-  component: Index,
-});
 
 const problemItems = [
   { tool: "Excel / Google Sheets", forWhat: "for manual tracking & formula errors", icon: FileSpreadsheet, color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
@@ -161,7 +147,7 @@ function FaqAccordion() {
   );
 }
 
-function Index() {
+export default function IndexPage() {
   return (
     <div className="min-h-screen bg-white text-slate-900 font-sans selection:bg-orange-100 selection:text-orange-700">
       <Toaster />

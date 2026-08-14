@@ -1,15 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { Link } from "react-router-dom";
 import { ShieldCheck, ChevronLeft, ArrowRight, CheckCircle2, FileText, Sparkles, Building2, UserCheck, Lock } from "lucide-react";
-
-export const Route = createFileRoute("/terms")({
-  head: () => ({
-    meta: [
-      { title: "Terms & Conditions — one Launch 10 Program" },
-      { name: "description", content: "Terms & Conditions for participating in the one Launch 10 Program." },
-    ],
-  }),
-  component: TermsPage,
-});
 
 function SectionBadge({ children }: { children: React.ReactNode }) {
   return (
@@ -20,7 +10,7 @@ function SectionBadge({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TermsPage() {
+export default function TermsPage() {
   return (
     <div className="min-h-screen bg-white text-slate-900 font-sans selection:bg-orange-100 selection:text-orange-700">
       {/* STICKY HEADER */}
