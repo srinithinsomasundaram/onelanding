@@ -18,8 +18,14 @@ export type ApplicationData = {
   why?: string;
 };
 
-// Helper function to reliably read environment variables from process.env, .env.local, or .env on the server
+// Helper function to reliably read environment variables from process.env, .env.local, or .env on server
 function getEnv(key: string): string {
+  // 1. Highest priority: actual environment variables in process.env (Vercel, Netlify, Render, Docker, AWS)
+  if (typeof process !== "undefined" && process.env && process.env[key] && !process.env[key]!.includes("YOUR_")) {
+    return process.env[key]!.trim();
+  }
+
+  // 2. Local environment files (.env.local, .env) for development
   if (typeof window === "undefined") {
     try {
       for (const file of [".env.local", ".env"]) {
@@ -27,17 +33,63 @@ function getEnv(key: string): string {
         if (fs.existsSync(envPath)) {
           const content = fs.readFileSync(envPath, "utf-8");
           const match = content.match(new RegExp(`^\\s*${key}\\s*=\\s*["']?([^"'\r\n]+)["']?`, "m"));
-          if (match && match[1]) {
+          if (match && match[1] && !match[1].trim().includes("YOUR_")) {
             return match[1].trim();
           }
         }
       }
     } catch (e) {}
   }
+
+  // 3. Fallback process.env lookup
   if (typeof process !== "undefined" && process.env && process.env[key]) {
-    return process.env[key]!;
+    return process.env[key]!.trim();
   }
+
   return "";
+}
+
+// Helper for sending transactional email via Resend HTTPS REST API (works on serverless without SMTP socket blocks)
+async function sendViaResendApi({
+  apiKey,
+  from,
+  to,
+  replyTo,
+  subject,
+  html,
+}: {
+  apiKey: string;
+  from: string;
+  to: string;
+  replyTo?: string;
+  subject: string;
+  html: string;
+}) {
+  const payload: Record<string, any> = {
+    from,
+    to: [to],
+    subject,
+    html,
+  };
+  if (replyTo) {
+    payload.reply_to = replyTo;
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Resend API HTTP ${response.status}: ${errorText}`);
+  }
+
+  return await response.json();
 }
 
 // Generates a modern, clean HTML email layout for the 'one' platform application
@@ -70,13 +122,15 @@ export function renderApplicationEmailHtml(data: ApplicationData): string {
             <td style="height: 6px; background: linear-gradient(135deg, #FF2A00 0%, #FF7A00 100%);"></td>
           </tr>
 
-          <!-- Header with embedded logo image -->
+          <!-- Header with logo -->
           <tr>
-            <td style="padding: 32px 32px 24px 32px; border-b: 1px solid #f1f5f9;">
+            <td style="padding: 32px 32px 24px 32px; border-bottom: 1px solid #f1f5f9;">
               <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
                   <td>
-                    <img src="cid:one-logo" alt="one Logo" style="height: 44px; width: auto; max-height: 48px; border: 0; display: block;" />
+                    <div style="font-size: 28px; font-weight: 900; letter-spacing: -0.5px; color: #0f172a; font-family: system-ui, -apple-system, sans-serif;">
+                      one<span style="color: #ff2a00;">.</span>
+                    </div>
                   </td>
                   <td align="right">
                     <span style="display: inline-block; background-color: #fff7ed; border: 1px solid #ffedd5; color: #c2410c; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 1px;">
@@ -185,7 +239,7 @@ export function renderApplicationEmailHtml(data: ApplicationData): string {
 
           <!-- Footer -->
           <tr>
-            <td style="padding: 24px 32px; background-color: #f8fafc; border-t: 1px solid #e2e8f0; text-align: center;">
+            <td style="padding: 24px 32px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
               <p style="margin: 0; font-size: 12px; color: #94a3b8;">
                 © ${new Date().getFullYear()} <strong>one</strong> — Unified Business Operations Platform.
               </p>
@@ -201,7 +255,7 @@ export function renderApplicationEmailHtml(data: ApplicationData): string {
   `;
 }
 
-// TanStack Start Server Function to process form submission and send email via SMTP
+// TanStack Start Server Function to process form submission and send email via HTTPS API or SMTP
 export const submitApplicationFn = createServerFn({ method: "POST" })
   .validator((input: any) => input)
   .handler(async ({ data }: { data: any }) => {
@@ -211,43 +265,102 @@ export const submitApplicationFn = createServerFn({ method: "POST" })
         ? (data as any).data
         : (data as ApplicationData) || {};
 
+    const resendApiKey = getEnv("RESEND_API_KEY") || getEnv("SMTP_PASS");
     const smtpHost = getEnv("SMTP_HOST") || "smtp.resend.com";
-    const smtpPort = parseInt(getEnv("SMTP_PORT") || "587", 10);
-    const smtpSecure = getEnv("SMTP_SECURE") === "true";
+    const smtpPort = parseInt(getEnv("SMTP_PORT") || "465", 10);
+    const smtpSecure = getEnv("SMTP_SECURE") === "true" || smtpPort === 465;
     const smtpUser = getEnv("SMTP_USER") || "resend";
     const smtpPass = getEnv("SMTP_PASS") || "";
-    const smtpFrom = getEnv("SMTP_FROM") || `"one Platform" <noreply@yespstudio.com>`;
+    const smtpFrom = getEnv("SMTP_FROM") || getEnv("RESEND_FROM") || `"one Platform" <noreply@yespstudio.com>`;
     const notificationEmail = getEnv("NOTIFICATION_EMAIL") || "srinithinoffl@gmail.com";
 
     const emailHtml = renderApplicationEmailHtml(appData);
     const emailSubject = `🚀 New Launch 10 Application: ${appData.company || "New Applicant"} (${appData.industry || "General"})`;
 
-    console.log(`[SMTP Engine] Sending application for ${appData.name || "Applicant"} (${appData.company || "Business"}). Target: ${notificationEmail}`);
+    console.log(`[Email Engine] Processing application for ${appData.name || "Applicant"} (${appData.company || "Business"}). Admin recipient: ${notificationEmail}`);
 
-    const logoPath = path.resolve(process.cwd(), "public/one-logo.png");
-    const attachments = fs.existsSync(logoPath)
-      ? [
-          {
-            filename: "one-logo.png",
-            path: logoPath,
-            cid: "one-logo",
-          },
-        ]
-      : [];
+    let adminSent = false;
+    let applicantSent = false;
 
+    // 1. Try Resend HTTPS REST API first (fastest, works on serverless without SMTP port restrictions)
+    if (resendApiKey && resendApiKey.startsWith("re_")) {
+      try {
+        console.log(`[Email Engine] Attempting delivery via Resend HTTPS REST API...`);
+        const res1 = await sendViaResendApi({
+          apiKey: resendApiKey,
+          from: smtpFrom,
+          to: notificationEmail,
+          replyTo: appData.email || undefined,
+          subject: emailSubject,
+          html: emailHtml,
+        });
+        console.log(`[Resend API Success] Delivered admin notification to ${notificationEmail}:`, res1.id);
+        adminSent = true;
+
+        if (appData.email) {
+          const confirmationSubject = `Application Received — Launch 10 Program (one)`;
+          const confirmationHtml = `
+            <div style="font-family: system-ui, sans-serif; padding: 28px; color: #0f172a; max-width: 520px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
+              <div style="margin-bottom: 20px; font-size: 24px; font-weight: 900; color: #0f172a;">
+                one<span style="color: #ff2a00;">.</span>
+              </div>
+              <h3 style="margin-bottom: 12px; font-size: 18px; color: #0f172a;">Hi ${appData.name || "Applicant"},</h3>
+              <p style="color: #475569; line-height: 1.6; font-size: 14px;">
+                Thank you for applying to the <strong>Launch 10 Program</strong> for <strong>${appData.company || "your business"}</strong>.
+              </p>
+              <p style="color: #475569; line-height: 1.6; font-size: 14px;">
+                Our technical engineering team is reviewing your operational details. We will contact you at <strong>${appData.phone}</strong> or <strong>${appData.email}</strong> within 24 hours to schedule your setup call.
+              </p>
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+              <p style="font-size: 12px; color: #94a3b8; margin: 0;">
+                © ${new Date().getFullYear()} one — Unified Operations Platform
+              </p>
+            </div>
+          `;
+
+          const res2 = await sendViaResendApi({
+            apiKey: resendApiKey,
+            from: smtpFrom,
+            to: appData.email,
+            subject: confirmationSubject,
+            html: confirmationHtml,
+          });
+          console.log(`[Resend API Success] Delivered confirmation to applicant ${appData.email}:`, res2.id);
+          applicantSent = true;
+        }
+
+        return { success: true, message: "Application submitted successfully!" };
+      } catch (resendErr: any) {
+        console.warn(`[Resend API Warning] Resend HTTPS delivery attempt failed. Falling back to SMTP transport:`, resendErr.message);
+      }
+    }
+
+    // 2. Fallback to Nodemailer SMTP
     try {
+      const logoPath = path.resolve(process.cwd(), "public/one-logo.png");
+      const attachments = fs.existsSync(logoPath)
+        ? [
+            {
+              filename: "one-logo.png",
+              path: logoPath,
+              cid: "one-logo",
+            },
+          ]
+        : [];
+
       const transporter = nodemailer.createTransport({
         host: smtpHost,
         port: smtpPort,
         secure: smtpSecure,
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
         auth: {
           user: smtpUser,
           pass: smtpPass,
         },
       });
 
-      // 1. Send notification email to onboarding admin (srinithinoffl@gmail.com)
-      try {
+      if (!adminSent) {
         const info1 = await transporter.sendMail({
           from: smtpFrom,
           to: notificationEmail,
@@ -257,17 +370,14 @@ export const submitApplicationFn = createServerFn({ method: "POST" })
           attachments,
         });
         console.log(`[SMTP Success] Delivered notification to ${notificationEmail}. Message ID: ${info1.messageId}`);
-      } catch (err1) {
-        console.error(`[SMTP Error] Notification delivery error:`, err1);
       }
 
-      // 2. Send simple modern confirmation email to the applicant if email is provided
-      if (appData.email) {
+      if (!applicantSent && appData.email) {
         const confirmationSubject = `Application Received — Launch 10 Program (one)`;
         const confirmationHtml = `
-          <div style="font-family: sans-serif; padding: 28px; color: #0f172a; max-width: 520px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
-            <div style="margin-bottom: 20px;">
-              <img src="cid:one-logo" alt="one Logo" style="height: 40px; width: auto; border: 0; display: block;" />
+          <div style="font-family: system-ui, sans-serif; padding: 28px; color: #0f172a; max-width: 520px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
+            <div style="margin-bottom: 20px; font-size: 24px; font-weight: 900; color: #0f172a;">
+              one<span style="color: #ff2a00;">.</span>
             </div>
             <h3 style="margin-bottom: 12px; font-size: 18px; color: #0f172a;">Hi ${appData.name || "Applicant"},</h3>
             <p style="color: #475569; line-height: 1.6; font-size: 14px;">
@@ -283,22 +393,20 @@ export const submitApplicationFn = createServerFn({ method: "POST" })
           </div>
         `;
 
-        try {
-          await transporter.sendMail({
-            from: smtpFrom,
-            to: appData.email,
-            subject: confirmationSubject,
-            html: confirmationHtml,
-            attachments,
-          });
-        } catch (err2) {
-          console.warn(`[SMTP Warning] Confirmation email error for ${appData.email}:`, err2);
-        }
+        const info2 = await transporter.sendMail({
+          from: smtpFrom,
+          to: appData.email,
+          subject: confirmationSubject,
+          html: confirmationHtml,
+          attachments,
+        });
+        console.log(`[SMTP Success] Delivered confirmation to ${appData.email}. Message ID: ${info2.messageId}`);
       }
 
       return { success: true, message: "Application submitted successfully!" };
-    } catch (err: any) {
-      console.error("[SMTP Error] Failed to process application:", err);
+    } catch (smtpErr: any) {
+      console.error("[SMTP Error] Failed to process application via SMTP:", smtpErr);
       return { success: true, message: "Application logged." };
     }
   });
+
