@@ -218,11 +218,7 @@ export function renderConfirmationEmailHtml(data: ApplicationData): string {
                 Our technical engineering team is reviewing your operational details. We will contact you at <strong>${data.phone}</strong> or <strong>${data.email}</strong> within 24 hours to schedule your setup call.
               </p>
 
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px;">
-                <p style="margin: 0; font-size: 13px; color: #64748b; font-weight: 600;">
-                  Next Steps: Our team will prepare a customized workflow prototype for ${data.company || "your business"} prior to our call.
-                </p>
-              </div>
+
             </td>
           </tr>
 
