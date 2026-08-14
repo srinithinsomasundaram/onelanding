@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import { renderApplicationEmailHtml, renderConfirmationEmailHtml } from "./src/lib/smtp.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 const DIST_DIR = path.resolve(process.cwd(), "dist");
@@ -81,27 +82,35 @@ const server = http.createServer((req, res) => {
 
         const resendApiKey = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
         const notificationEmail = process.env.NOTIFICATION_EMAIL || "srinithinoffl@gmail.com";
+        const senderFrom = process.env.SMTP_FROM || process.env.RESEND_FROM || '"one Platform" <noreply@yespstudio.com>';
 
         if (resendApiKey && resendApiKey.startsWith("re_")) {
-          const subject = `🚀 New Launch 10 Application: ${appData.company || "New Applicant"}`;
-          const html = `
-            <h2>New Launch 10 Application Received</h2>
-            <p><strong>Company:</strong> ${appData.company || "N/A"}</p>
-            <p><strong>Name:</strong> ${appData.name || "N/A"} (${appData.designation || ""})</p>
-            <p><strong>Email:</strong> ${appData.email || "N/A"}</p>
-            <p><strong>Phone:</strong> ${appData.phone || "N/A"}</p>
-            <p><strong>Industry:</strong> ${appData.industry || "N/A"}</p>
-            <p><strong>Team Size:</strong> ${appData.employees || "N/A"}</p>
-            <p><strong>Problem:</strong> ${appData.problem || "N/A"}</p>
-          `;
+          // 1. Admin Notification Email
+          const adminSubject = `🚀 New Launch 10 Application: ${appData.company || "New Applicant"}`;
+          const adminHtml = renderApplicationEmailHtml(appData);
 
           await sendResendEmail({
             apiKey: resendApiKey,
-            from: process.env.SMTP_FROM || process.env.RESEND_FROM,
+            from: senderFrom,
             to: notificationEmail,
-            subject,
-            html,
+            subject: adminSubject,
+            html: adminHtml,
           });
+
+          // 2. Applicant Confirmation Email
+          if (appData.email) {
+            const confirmSubject = `Application Received — Launch 10 Program (one)`;
+            const confirmHtml = renderConfirmationEmailHtml(appData);
+
+            await sendResendEmail({
+              apiKey: resendApiKey,
+              from: senderFrom,
+              to: appData.email,
+              subject: confirmSubject,
+              html: confirmHtml,
+            });
+            console.log(`[API /api/apply] Sent applicant confirmation email to ${appData.email}`);
+          }
         }
 
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -152,6 +161,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`[Production Server] Listening on http://0.0.0.0:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`[Production Server] Listening on port ${PORT}`);
 });

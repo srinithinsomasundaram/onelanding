@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { renderApplicationEmailHtml, renderConfirmationEmailHtml } from "./src/lib/smtp.ts";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -43,8 +44,13 @@ export default defineConfig(({ mode }) => {
 
                   const resendApiKey = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
                   const notificationEmail = process.env.NOTIFICATION_EMAIL || "srinithinoffl@gmail.com";
+                  const senderFrom = process.env.SMTP_FROM || process.env.RESEND_FROM || '"one Platform" <noreply@yespstudio.com>';
 
                   if (resendApiKey && resendApiKey.startsWith("re_")) {
+                    // 1. Admin Notification Email
+                    const adminSubject = `🚀 New Launch 10 Application: ${appData.company || "New Applicant"}`;
+                    const adminHtml = renderApplicationEmailHtml(appData);
+
                     await fetch("https://api.resend.com/emails", {
                       method: "POST",
                       headers: {
@@ -52,21 +58,33 @@ export default defineConfig(({ mode }) => {
                         "Content-Type": "application/json",
                       },
                       body: JSON.stringify({
-                        from: process.env.SMTP_FROM || process.env.RESEND_FROM || '"one Platform" <noreply@yespstudio.com>',
+                        from: senderFrom,
                         to: [notificationEmail],
-                        subject: `🚀 New Launch 10 Application: ${appData.company || "New Applicant"}`,
-                        html: `
-                          <h2>New Launch 10 Application Received</h2>
-                          <p><strong>Company:</strong> ${appData.company || "N/A"}</p>
-                          <p><strong>Name:</strong> ${appData.name || "N/A"} (${appData.designation || ""})</p>
-                          <p><strong>Email:</strong> ${appData.email || "N/A"}</p>
-                          <p><strong>Phone:</strong> ${appData.phone || "N/A"}</p>
-                          <p><strong>Industry:</strong> ${appData.industry || "N/A"}</p>
-                          <p><strong>Team Size:</strong> ${appData.employees || "N/A"}</p>
-                          <p><strong>Problem:</strong> ${appData.problem || "N/A"}</p>
-                        `,
+                        subject: adminSubject,
+                        html: adminHtml,
                       }),
-                    }).catch((e) => console.error("[Dev Resend Error]", e));
+                    }).catch((e) => console.error("[Dev Resend Admin Error]", e));
+
+                    // 2. Applicant Confirmation Email
+                    if (appData.email) {
+                      const confirmSubject = `Application Received — Launch 10 Program (one)`;
+                      const confirmHtml = renderConfirmationEmailHtml(appData);
+
+                      await fetch("https://api.resend.com/emails", {
+                        method: "POST",
+                        headers: {
+                          "Authorization": `Bearer ${resendApiKey}`,
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          from: senderFrom,
+                          to: [appData.email],
+                          subject: confirmSubject,
+                          html: confirmHtml,
+                        }),
+                      }).catch((e) => console.error("[Dev Resend Confirm Error]", e));
+                      console.log(`[Dev API /api/apply] Sent applicant confirmation email to ${appData.email}`);
+                    }
                   }
 
                   res.setHeader("Content-Type", "application/json");
