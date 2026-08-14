@@ -23,7 +23,9 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       tailwindcss(),
-      viteReact(),
+      viteReact({
+        jsxRuntime: "automatic",
+      }),
     ],
   };
 });
