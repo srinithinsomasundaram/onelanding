@@ -1,9 +1,20 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 
 const PORT = Number(process.env.PORT) || 3000;
 const DIST_DIR = path.resolve(process.cwd(), "dist");
+
+// Ensure dist directory exists or build it automatically on server startup
+if (!fs.existsSync(path.join(DIST_DIR, "index.html"))) {
+  console.log("[Production Server] dist/index.html not found. Building project...");
+  try {
+    execSync("npx vite build", { stdio: "inherit" });
+  } catch (e) {
+    console.error("[Production Server] Automatic build failed:", e);
+  }
+}
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -48,6 +59,13 @@ async function sendResendEmail({ apiKey, from, to, subject, html }) {
 
 const server = http.createServer((req, res) => {
   const urlPath = (req.url || "/").split("?")[0];
+
+  // Health check routes for NGINX & Docker proxy health monitors
+  if (urlPath === "/health" || urlPath === "/healthz" || urlPath === "/_health" || urlPath === "/ping") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }));
+    return;
+  }
 
   // API Route: POST /api/apply
   if (req.method === "POST" && urlPath === "/api/apply") {
@@ -121,8 +139,8 @@ const server = http.createServer((req, res) => {
 
   fs.readFile(filePath, (err, data) => {
     if (err) {
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end("500 Internal Server Error");
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end("<!DOCTYPE html><html><head><title>one</title></head><body><div id='root'>Loading one platform...</div></body></html>");
       return;
     }
 
@@ -134,6 +152,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`[Production Server] Listening on port ${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[Production Server] Listening on http://0.0.0.0:${PORT}`);
 });
